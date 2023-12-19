@@ -3,23 +3,29 @@ from waitress import serve
 from argparse import ArgumentParser
 from rclpy.action import ActionClient
 import rclpy
-import tf2_ros
 from nav2_msgs.action import NavigateToPose
+from rclpy.executors import MultiThreadedExecutor
 try:
-    from .utils import eular_to_quaternion, quaternion_to_eular # for ros2 run
+    from .utils import eular_to_quaternion  # for ros2 run
 except:
-    from utils import eular_to_quaternion, quaternion_to_eular # for python3 nav_http_server.py
+    from utils import eular_to_quaternion  # for python3 nav_http_server.py
+import logging
 
-# 解析--map-frame,--robot-frame和--navigate-to-pose-action三个参数
+# 设置日志级别和格式
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# 解析--map-frame和--navigate-to-pose-action两个参数
 parser = ArgumentParser()
 parser.add_argument('--map-frame', default='map')
-parser.add_argument('--robot-frame', default='base_link')
 parser.add_argument('--navigate-to-pose-action', default='/navigate_to_pose')
-args = parser.parse_args()
+args, unknown = parser.parse_known_args()
 
 MAP_FRAME = args.map_frame
-ROBOT_FRAME = args.robot_frame
 NAVIGATE_TO_POSE_ACTION = args.navigate_to_pose_action
+
+DIST_THRESHOLD = 0.01
+ROT_THRESHOLD = 0.01
+
 
 class SendNavGoalNode(rclpy.node.Node):
     def __init__(self):
@@ -28,12 +34,21 @@ class SendNavGoalNode(rclpy.node.Node):
         if not self.action_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('NavigateToPose action server not available after waiting')
             exit(1)
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
-    
+        self.last_goal = None
+
     def send_nav_goal(self, x, y, theta):
-        q = eular_to_quaternion(0,0,theta)
-        
+
+        # 如果多次以相同的参数调用send_nav_goal，则不会发送新的目标
+        if self.last_goal is not None:
+            x_last, y_last, theta_last = self.last_goal
+            dist = (x-x_last)**2 + (y-y_last)**2
+            rot = (theta-theta_last)**2
+            if dist < DIST_THRESHOLD and rot < ROT_THRESHOLD:
+                return True, 'goal not changed'
+
+        self.last_goal = (x, y, theta)
+        q = eular_to_quaternion(0, 0, theta)
+
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose.header.frame_id = MAP_FRAME
         goal_msg.pose.pose.position.x = float(x)
@@ -43,31 +58,22 @@ class SendNavGoalNode(rclpy.node.Node):
         goal_msg.pose.pose.orientation.y = q[1]
         goal_msg.pose.pose.orientation.z = q[2]
         goal_msg.pose.pose.orientation.w = q[3]
-        
+
         goal_handle_future = self.action_client.send_goal_async(goal_msg)
-        rclpy.spin_until_future_complete(self, goal_handle_future)
+        rclpy.spin_until_future_complete(self, goal_handle_future, executor=MultiThreadedExecutor(num_threads=3))
         goal_handle = goal_handle_future.result()
-        
+
         if not goal_handle.accepted:
             self.get_logger().error('Goal rejected')
-            return False
-        return True
+            return False, 'goal rejected'
+        return True, 'goal accepted'
 
-    def robot_loc(self):        
-        transform = self.tf_buffer.lookup_transform(MAP_FRAME, ROBOT_FRAME, rclpy.time.Time())
-        x = transform.transform.translation.x
-        y = transform.transform.translation.y
-        
-        q = transform.transform.rotation
-        e = quaternion_to_eular(q.x,q.y,q.z,q.w)
-        theta = e[2]
-        
-        return x, y, theta
 
 rclpy.init()
 node = SendNavGoalNode()
 
 app = Flask(__name__)
+
 
 @app.route('/nav', methods=['POST'])
 def nav():
@@ -80,22 +86,19 @@ def nav():
     if x is None or y is None or theta is None:
         return jsonify({'status': 'error', 'message': 'invalid input'})
 
-    success = node.send_nav_goal(x, y, theta)
+    success, message = node.send_nav_goal(x, y, theta)
     if success:
-        return jsonify({'status': 'success'})
+        return jsonify({'status': 'success', 'message': message})
     else:
-        return jsonify({'status': 'error', 'message': 'goal rejected'})
+        return jsonify({'status': 'error', 'message': message})
 
-
-@app.route('/loc', methods=['GET'])
-def loc():
-    x, y, theta = node.robot_loc()
-    return jsonify({'x': x, 'y': y, 'theta': theta})
-    
 
 def main():
-    serve(app, host='0.0.0.0', port=5000)
+    port=5000
+    host='0.0.0.0'
+    logging.info(f'nav_http_server started at {host}:{port}, --map-frame: {MAP_FRAME}, --navigate-to-pose-action: {NAVIGATE_TO_POSE_ACTION}')
+    serve(app, host=host, port=port)
 
 
 if __name__ == '__main__':
-   main()
+    main()
