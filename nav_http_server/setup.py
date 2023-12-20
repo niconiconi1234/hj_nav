@@ -24,7 +24,8 @@ setup(
     entry_points={
         'console_scripts': [
             "nav_http_server = nav_http_server.nav_http_server:main",
-            "loc_http_server = nav_http_server.loc_http_server:main"
+            "loc_http_server = nav_http_server.loc_http_server:main",
+            "global_localization_client = nav_http_server.global_localization_client:main",
         ],
     },
 )
