@@ -8,6 +8,7 @@ try:
 except:
     from utils import quaternion_to_eular  # for python3 nav_http_server.py
 import logging
+from datetime import datetime
 
 # 设置日志级别和格式
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -24,7 +25,8 @@ ROBOT_FRAME = args.robot_frame
 
 class RobotLocNode(rclpy.node.Node):
     def __init__(self):
-        super().__init__('robot_loc_node')
+        ts = datetime.now().timestamp()
+        super().__init__('loc_http_server' + str(ts).replace('.', ''))
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
 

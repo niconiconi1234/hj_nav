@@ -5,6 +5,7 @@ from rclpy.action import ActionClient
 import rclpy
 from nav2_msgs.action import NavigateToPose
 from rclpy.executors import MultiThreadedExecutor
+from datetime import datetime
 try:
     from .utils import eular_to_quaternion  # for ros2 run
 except:
@@ -29,7 +30,8 @@ ROT_THRESHOLD = 0.01
 
 class SendNavGoalNode(rclpy.node.Node):
     def __init__(self):
-        super().__init__('send_nav_goal_node')
+        ts = datetime.now().timestamp()
+        super().__init__('nav_http_server' + str(ts).replace('.', ''))
         self.action_client = ActionClient(self, NavigateToPose, NAVIGATE_TO_POSE_ACTION)
         if not self.action_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('NavigateToPose action server not available after waiting')
@@ -94,9 +96,10 @@ def nav():
 
 
 def main():
-    port=5000
-    host='0.0.0.0'
-    logging.info(f'nav_http_server started at {host}:{port}, --map-frame: {MAP_FRAME}, --navigate-to-pose-action: {NAVIGATE_TO_POSE_ACTION}')
+    port = 5000
+    host = '0.0.0.0'
+    logging.info(
+        f'nav_http_server started at {host}:{port}, --map-frame: {MAP_FRAME}, --navigate-to-pose-action: {NAVIGATE_TO_POSE_ACTION}')
     serve(app, host=host, port=port)
 
 
