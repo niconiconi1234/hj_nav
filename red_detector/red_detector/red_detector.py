@@ -19,7 +19,7 @@ except:
 
 parser = ArgumentParser()
 parser.add_argument('--debug', action='store_true')
-args = parser.parse_args()
+args, unknown = parser.parse_known_args()
 
 IS_DEUBG = args.debug
 
